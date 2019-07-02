@@ -23,4 +23,4 @@ material.o: material.cpp material.hpp
 
 .PHONY: clean
 clean:
-	rm -rf *.o test
+	rm -rf *.o main

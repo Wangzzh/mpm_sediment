@@ -24,14 +24,24 @@ public:
     // Time step
     double dt;
     int fluidStepPerDT;
-    int sandStepPerDT;
+    int sedimentStepPerDT;
+
+    // Grid
+    int nGrid;
 
     // MPM class for sediment simulation
-    std::vector<Grid> grids;
-    std::vector<Particle> pFluid;
-    std::vector<Particle> pSand;
+    std::vector<std::vector<Grid*>> grids;
+    std::vector<Particle*> pFluid;
+    std::vector<Particle*> pSediment;
+    
+    // Materials
+    Material fluidMaterial;
+    Material sedimentMaterial;
 
     void initFromConfig(std::string);
     void render();
-    
+
+private:
+    ~MPM();
+
 };

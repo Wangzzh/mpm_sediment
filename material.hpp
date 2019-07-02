@@ -1,6 +1,6 @@
 #pragma once
 
-class Material
+struct Material
 {
-
+    double density;
 };
