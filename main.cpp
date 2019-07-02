@@ -10,6 +10,7 @@
 #include "mpm.hpp"
 #include "material.hpp"
 
+bool simulate = false;
 
 MPM* mpm;
 
@@ -19,18 +20,22 @@ void display()
     glClear(GL_COLOR_BUFFER_BIT);
 
     mpm->render();
+    mpm->step();
 
     glFlush();
 }
 
 void idle()
 {
-
+    if (simulate) {
+        mpm->step();
+    }
+    glutPostRedisplay();
 }
 
 void keyboard(unsigned char key, int x, int y)
 {
-
+    if (key == ' ') {simulate = !simulate; std::cout << "Simulate: " << simulate << std::endl;}
 }
 
 

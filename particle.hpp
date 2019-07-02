@@ -10,7 +10,13 @@ class Particle
 public:
     double mass;
     Eigen::Vector2d position;
-    Eigen::Vector2d momentum;
+    Eigen::Vector2d velocity;
+
+    Eigen::Matrix2d B;
+
+    int gx, gy;
+    double diffx, diffy;
+    Eigen::Vector3d wx, wy;
 
     void renderPosition();
 };

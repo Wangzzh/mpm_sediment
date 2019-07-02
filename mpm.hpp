@@ -25,9 +25,14 @@ public:
     double dt;
     int fluidStepPerDT;
     int sedimentStepPerDT;
+    double dtFluid, dtSediment;
 
     // Grid
     int nGrid;
+    double sGrid;
+
+    // Parameters
+    Eigen::Vector2d gravity;
 
     // MPM class for sediment simulation
     std::vector<std::vector<Grid*>> grids;
@@ -40,6 +45,10 @@ public:
 
     void initFromConfig(std::string);
     void render();
+
+    void step();
+    void fluidStep();
+    void sedimentStep();
 
 private:
     ~MPM();

@@ -1,5 +1,86 @@
 #include "mpm.hpp"
 
+void MPM::step() {
+    for (int i = 0; i < fluidStepPerDT; i++) {
+        fluidStep();
+    }
+    for (int i = 0; i < sedimentStepPerDT; i++) {
+        sedimentStep();
+    }
+}
+
+void MPM::fluidStep() {
+    for (int i = 0; i < nGrid; i++) {
+        for (int j = 0; j < nGrid; j++) {
+            grids[i][j]->mass = 0;
+            grids[i][j]->fMomentum << 0,0;
+        }
+    }
+
+    // Particle to grid
+    for (auto &p : pFluid) {
+        p->gx = floor(p->position(0) / sGrid);
+        p->gy = floor(p->position(1) / sGrid);
+        p->diffx = p->position(0) / sGrid - (double)p->gx - 0.5;
+        p->diffy = p->position(1) / sGrid - (double)p->gy - 0.5;
+
+        p->wx << 0.5*(0.5-p->diffx)*(0.5-p->diffx),
+                 0.75-p->diffx*p->diffx,
+                 0.5*(0.5+p->diffx)*(0.5+p->diffx);
+        p->wy << 0.5*(0.5-p->diffy)*(0.5-p->diffy),
+                 0.75-p->diffy*p->diffy,
+                 0.5*(0.5+p->diffy)*(0.5+p->diffy);
+
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy ++) {
+                if (p->gx+dx>=1 && p->gx+dx<nGrid-1 && p->gy+dy>=1 && p->gy+dy<nGrid-1) {
+                    grids[p->gx+dx][p->gy+dy]->mass += p->wx(dx+1) * p->wy(dy+1) * p->mass;
+                    grids[p->gx+dx][p->gy+dy]->fMomentum += p->wx(dx+1) * p->wy(dy+1) * p->mass * p->velocity;
+                }
+            }
+        }
+    }
+
+    // forces
+    for (int i = 1; i + 1 < nGrid; i++) {
+        for (int j = 1; j + 1 < nGrid; j++) {
+            grids[i][j]->fMomentum += gravity * grids[i][j]->mass * dt;
+        }
+        if (grids[i][0]->fMomentum(1) < 0) {grids[i][0]->fMomentum(1) = 0;}
+    }
+
+    // projection
+    for (int it = 0; it < 10; it ++) {
+        for (int i = 1; i + 1 < nGrid; i++) {
+            for (int j = 1; j + 1 < nGrid; j++) {
+                double inflow = grids[i+1][j]->fMomentum(0) + grids[i][j+1]->fMomentum(1) - grids[i][j-1]->fMomentum(1) - grids[i-1][j]->fMomentum(0);
+                if (i-1>0) grids[i-1][j]->fMomentum(0) += 0.25 * inflow;
+                if (i+1<nGrid-1) grids[i+1][j]->fMomentum(0) -= 0.25 * inflow;
+                if (j-1>0) grids[i][j-1]->fMomentum(1) += 0.25 * inflow;
+                if (j-1<nGrid-1) grids[i][j+1]->fMomentum(1) -= 0.25 * inflow;
+            }
+        }
+    }
+
+    // Grid to Particle
+    for (auto &p : pFluid) {
+        p->velocity << 0,0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy ++) {
+                if (p->gx+dx>=1 && p->gx+dx<nGrid-1 && p->gy+dy>=1 && p->gy+dy<nGrid-1) {
+                    p->velocity += grids[p->gx+dx][p->gy+dy]->fMomentum * p->wx(dx+1) * p->wy(dy+1) / grids[p->gx+dx][p->gy+dy]->mass;
+                }
+            }
+        }
+        p->position += dt * p->velocity;
+    }
+    
+}
+
+void MPM::sedimentStep() {
+
+}
+
 void MPM::render() {
     // Particles
     glColor3f(0.5, 0.5, 1);
@@ -45,16 +126,18 @@ void MPM::initFromConfig(std::string filename) {
 
         else if (state == NORMAL) {
             if (word == "dt") {iss >> d; dt = d;} 
-            else if (word == "fluidStepPerDT") {iss >> i; fluidStepPerDT = i;}
-            else if (word == "sedimentStepPerDT") {iss >> i; sedimentStepPerDT = i;}
+            else if (word == "fluidStepPerDT") {iss >> i; fluidStepPerDT = i; dtFluid = dt / (double)fluidStepPerDT;}
+            else if (word == "sedimentStepPerDT") {iss >> i; sedimentStepPerDT = i; dtSediment = dt / (double)sedimentStepPerDT;}
+            else if (word == "gravity") {iss >> x >> y; gravity << x, y;}
             else if (word == "nGrid") {
-                iss >> i; nGrid = i; 
+                iss >> i; nGrid = i; sGrid = 1. / (double)i;
                 grids = std::vector<std::vector<Grid*>>(i, std::vector<Grid*>(i));
                 for (i = 0; i < nGrid; i++) {
                     for (j = 0; j < nGrid; j++) {
                         grids[i][j] = new Grid();
                         grids[i][j]->position << (((double)i + 0.5) / nGrid), (((double)j + 0.5) / nGrid);
-                        grids[i][j]->momentum << 0, 0;
+                        grids[i][j]->fMomentum << 0, 0;
+                        grids[i][j]->sMomentum << 0, 0;
                     }
                 }
             }
@@ -65,9 +148,9 @@ void MPM::initFromConfig(std::string filename) {
                 iss >> x >> y;
                 p->position << x, y;
                 if (iss >> x >> y) {
-                    p->momentum << x, y;
+                    p->velocity << x, y;
                 } else {
-                    p->momentum << 0, 0;
+                    p->velocity << 0, 0;
                 } 
                 if (word == "addFluid") {pFluid.push_back(p);}
                 else {pSediment.push_back(p);}
