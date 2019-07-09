@@ -33,7 +33,7 @@ void MPM::fluidStep() {
 
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy ++) {
-                if (p->gx+dx>=1 && p->gx+dx<nGrid-1 && p->gy+dy>=1 && p->gy+dy<nGrid-1) {
+                if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
                     grids[p->gx+dx][p->gy+dy]->mass += p->wx(dx+1) * p->wy(dy+1) * p->mass;
                     grids[p->gx+dx][p->gy+dy]->fMomentum += p->wx(dx+1) * p->wy(dy+1) * p->mass * p->velocity;
                 }
@@ -44,7 +44,7 @@ void MPM::fluidStep() {
     // forces
     for (int i = 1; i + 1 < nGrid; i++) {
         for (int j = 1; j + 1 < nGrid; j++) {
-            grids[i][j]->fMomentum += gravity * grids[i][j]->mass * dt;
+            grids[i][j]->fMomentum += gravity * grids[i][j]->mass * dtFluid;
         }
         if (grids[i][0]->fMomentum(1) < 0) {grids[i][0]->fMomentum(1) = 0;}
     }
@@ -67,18 +67,69 @@ void MPM::fluidStep() {
         p->velocity << 0,0;
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy ++) {
-                if (p->gx+dx>=1 && p->gx+dx<nGrid-1 && p->gy+dy>=1 && p->gy+dy<nGrid-1) {
+                if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
                     p->velocity += grids[p->gx+dx][p->gy+dy]->fMomentum * p->wx(dx+1) * p->wy(dy+1) / grids[p->gx+dx][p->gy+dy]->mass;
                 }
             }
         }
-        p->position += dt * p->velocity;
+        p->position += dtFluid * p->velocity;
     }
     
 }
 
 void MPM::sedimentStep() {
+    for (int i = 0; i < nGrid; i++) {
+        for (int j = 0; j < nGrid; j++) {
+            grids[i][j]->mass = 0;
+            grids[i][j]->sMomentum << 0,0;
+        }
+    }
 
+    // Particle to grid
+    for (auto &p : pSediment) {
+        p->gx = floor(p->position(0) / sGrid);
+        p->gy = floor(p->position(1) / sGrid);
+        p->diffx = p->position(0) / sGrid - (double)p->gx - 0.5;
+        p->diffy = p->position(1) / sGrid - (double)p->gy - 0.5;
+
+        p->wx << 0.5*(0.5-p->diffx)*(0.5-p->diffx),
+                 0.75-p->diffx*p->diffx,
+                 0.5*(0.5+p->diffx)*(0.5+p->diffx);
+        p->wy << 0.5*(0.5-p->diffy)*(0.5-p->diffy),
+                 0.75-p->diffy*p->diffy,
+                 0.5*(0.5+p->diffy)*(0.5+p->diffy);
+
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy ++) {
+                if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
+                    grids[p->gx+dx][p->gy+dy]->mass += p->wx(dx+1) * p->wy(dy+1) * p->mass;
+                    grids[p->gx+dx][p->gy+dy]->sMomentum += p->wx(dx+1) * p->wy(dy+1) * p->mass * 
+                        (p->velocity + 4. * sGrid * sGrid * p->B * (grids[p->gx+dx][p->gy+dy]->position - p->position));
+                }
+            }
+        }
+    }
+
+    // forces
+    for (int i = 0; i < nGrid; i++) {
+        for (int j = 0; j < nGrid; j++) {
+            grids[i][j]->sMomentum += gravity * grids[i][j]->mass * dtSediment;
+        }
+    }
+
+    // Grid to Particle
+    for (auto &p : pSediment) {
+        p->velocity << 0,0;
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy ++) {
+                if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
+                    p->velocity += grids[p->gx+dx][p->gy+dy]->sMomentum * p->wx(dx+1) * p->wy(dy+1) / grids[p->gx+dx][p->gy+dy]->mass;
+                    p->B += grids[p->gx+dx][p->gy+dy]->sMomentum * p->wx(dx+1) * p->wy(dy+1) * (grids[p->gx+dx][p->gy+dy]->position - p->position).transpose(); 
+                }
+            }
+        }
+        p->position += dtSediment * p->velocity;
+    }
 }
 
 void MPM::render() {
@@ -154,6 +205,34 @@ void MPM::initFromConfig(std::string filename) {
                 } 
                 if (word == "addFluid") {pFluid.push_back(p);}
                 else {pSediment.push_back(p);}
+            }
+            else if (word == "addFluidBlock" || word == "addSedimentBlock") {
+                iss >> x >> y;
+                Eigen::Vector2d center;
+                center << x, y;
+                iss >> x >> y;
+                Eigen::Vector2d size;
+                size << x, y;
+
+                iss >> x;
+                double interval = x;
+
+                for (x = center[0] - 0.5*size[0]; x <= center[0] + 0.5*size[0]; x += interval) {
+                    for (y = center[1] - 0.5*size[1]; y <= center[1] + 0.5*size[1]; y += interval) {
+                        Particle* p = new Particle();
+                        p->mass = 1;
+                        p->position << x, y;
+                        p->velocity << 0, 0;
+                        if (word == "addFluidBlock") {
+                            p->mass = interval * interval * fluidMaterial.density;
+                            pFluid.push_back(p);
+                        }
+                        else {
+                            p->mass = interval * interval * sedimentMaterial.density;
+                            pSediment.push_back(p);
+                        }
+                    }
+                }
             }
             else {std::cout << "Unknown param: " << word << std::endl;}
         }

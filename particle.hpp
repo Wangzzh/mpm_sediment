@@ -12,7 +12,7 @@ public:
     Eigen::Vector2d position;
     Eigen::Vector2d velocity;
 
-    Eigen::Matrix2d B;
+    Eigen::Matrix2d B = Eigen::Matrix2d::Zero();
 
     int gx, gy;
     double diffx, diffy;

@@ -20,7 +20,6 @@ void display()
     glClear(GL_COLOR_BUFFER_BIT);
 
     mpm->render();
-    mpm->step();
 
     glFlush();
 }
@@ -36,6 +35,7 @@ void idle()
 void keyboard(unsigned char key, int x, int y)
 {
     if (key == ' ') {simulate = !simulate; std::cout << "Simulate: " << simulate << std::endl;}
+    if (key == 'g' && !simulate) {mpm->step(); std::cout << "Step" << std::endl;}
 }
 
 

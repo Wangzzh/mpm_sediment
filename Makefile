@@ -12,6 +12,9 @@ main.o: main.cpp
 mpm.o: mpm.cpp mpm.hpp 
 	g++ -c mpm.cpp $(OPENGL_LIB) $(EIGEN_LIB)
 
+init.o: init.cpp mpm.hpp
+	g++ -c init.cpp $(OPENGL_LIB) $(EIGEN_LIB)
+
 particle.o: particle.cpp particle.hpp
 	g++ -c particle.cpp $(OPENGL_LIB) $(EIGEN_LIB)
 
