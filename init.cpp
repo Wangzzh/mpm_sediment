@@ -1,6 +1,8 @@
 #include "mpm.hpp"
 
 void MPM::initFromConfig(std::string filename) {
+    srand(0);
+
     std::ifstream f;
     f.open(filename, std::fstream::in);
     if (!f) {
@@ -65,13 +67,58 @@ void MPM::initFromConfig(std::string filename) {
                 iss >> x;
                 double interval = x;
 
-                for (x = center[0] - 0.5*size[0]; x <= center[0] + 0.5*size[0]; x += interval) {
-                    for (y = center[1] - 0.5*size[1]; y <= center[1] + 0.5*size[1]; y += interval) {
+                Eigen::Vector2d unitX; unitX << 1, 0;
+                Eigen::Vector2d unitY; unitY << 0, 1;
+                if (iss >> d) {
+                    unitX << cos(d), sin(d);
+                    unitY << -sin(d), cos(d);
+                }
+
+                for (x = -0.5*size[0]; x <= 0.5*size[0]; x += interval) {
+                    for (y = -0.5*size[1]; y <= 0.5*size[1]; y += interval) {
                         Particle* p = new Particle();
                         p->mass = 1;
-                        p->position << x, y;
+                        p->volume = interval * interval;
+                        p->position = center + x * unitX + y * unitY;
                         p->velocity << 0, 0;
                         if (word == "addFluidBlock") {
+                            p->mass = interval * interval * fluidMaterial.density;
+                            pFluid.push_back(p);
+                        }
+                        else {
+                            p->mass = interval * interval * sedimentMaterial.density;
+                            pSediment.push_back(p);
+                        }
+                    }
+                }
+            }
+            else if (word == "addFluidBlockRand" || word == "addSedimentBlockRand") {
+                iss >> x >> y;
+                Eigen::Vector2d center;
+                center << x, y;
+                iss >> x >> y;
+                Eigen::Vector2d size;
+                size << x, y;
+
+                iss >> x;
+                double interval = x;
+
+                Eigen::Vector2d unitX; unitX << 1, 0;
+                Eigen::Vector2d unitY; unitY << 0, 1;
+                if (iss >> d) {
+                    unitX << cos(d), sin(d);
+                    unitY << -sin(d), cos(d);
+                }
+
+                for (x = -0.5*size[0]; x <= 0.5*size[0]; x += interval) {
+                    for (y = -0.5*size[1]; y <= 0.5*size[1]; y += interval) {
+                        Particle* p = new Particle();
+                        p->mass = 1;
+                        p->volume = interval * interval;
+                        p->position = ((rand() % 10000 / 10000. - 0.5) * size(0)) * unitX + 
+                                      ((rand() % 10000 / 10000. - 0.5) * size(1)) * unitY + center;
+                        p->velocity << 0, 0;
+                        if (word == "addFluidBlockRand") {
                             p->mass = interval * interval * fluidMaterial.density;
                             pFluid.push_back(p);
                         }
@@ -88,6 +135,8 @@ void MPM::initFromConfig(std::string filename) {
         else if (state == MATERIAL) {
             if (word == "endMaterial") {state = NORMAL;}
             else if (word == "density") {iss >> d; materialPtr->density = d;}
+            else if (word == "E") {iss >> d; materialPtr->E = d; materialPtr->calc();}
+            else if (word == "nu") {iss >> d; materialPtr->nu = d; materialPtr->calc();}
             else {std::cout << "Unknown param: " << word << std::endl;}
         }
 

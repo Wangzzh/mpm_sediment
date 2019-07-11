@@ -3,8 +3,8 @@ EIGEN_LIB=-I /usr/include/eigen3
 
 all: main 
 
-main: main.o particle.o mpm.o grid.o material.o
-	g++ -o main main.o particle.o mpm.o grid.o material.o $(OPENGL_LIB) $(EIGEN_LIB)
+main: main.o particle.o mpm.o grid.o material.o init.o
+	g++ -o main main.o particle.o mpm.o grid.o material.o init.o $(OPENGL_LIB) $(EIGEN_LIB)
 
 main.o: main.cpp
 	g++ -c main.cpp $(OPENGL_LIB) $(EIGEN_LIB)

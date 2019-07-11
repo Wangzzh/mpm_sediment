@@ -92,19 +92,52 @@ void MPM::sedimentStep() {
         p->diffx = p->position(0) / sGrid - (double)p->gx - 0.5;
         p->diffy = p->position(1) / sGrid - (double)p->gy - 0.5;
 
-        p->wx << 0.5*(0.5-p->diffx)*(0.5-p->diffx),
+        p->wx << 0.5*(1.5-(1+p->diffx))*(1.5-(1+p->diffx)),
                  0.75-p->diffx*p->diffx,
-                 0.5*(0.5+p->diffx)*(0.5+p->diffx);
-        p->wy << 0.5*(0.5-p->diffy)*(0.5-p->diffy),
+                 0.5*(1.5-(1-p->diffx))*(1.5-(1-p->diffx));
+        p->wy << 0.5*(1.5-(1+p->diffy))*(1.5-(1+p->diffy)),
                  0.75-p->diffy*p->diffy,
-                 0.5*(0.5+p->diffy)*(0.5+p->diffy);
+                 0.5*(1.5-(1-p->diffy))*(1.5-(1-p->diffy));
+
+        p->dwx << -1.5+(1+p->diffx),
+                  -2. * p->diffx,
+                  1.5-(1-p->diffx);
+        p->dwy << -1.5+(1+p->diffy),
+                  -2. * p->diffy,
+                  1.5-(1-p->diffy);
 
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy ++) {
                 if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
                     grids[p->gx+dx][p->gy+dy]->mass += p->wx(dx+1) * p->wy(dy+1) * p->mass;
                     grids[p->gx+dx][p->gy+dy]->sMomentum += p->wx(dx+1) * p->wy(dy+1) * p->mass * 
-                        (p->velocity + 4. * sGrid * sGrid * p->B * (grids[p->gx+dx][p->gy+dy]->position - p->position));
+                        (p->velocity + 4. * p->B * (grids[p->gx+dx][p->gy+dy]->position - p->position));
+                }
+            }
+        }
+        
+        // stress force
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(p->FE, Eigen::ComputeThinU | Eigen::ComputeThinV);
+        Eigen::Matrix2d U = svd.matrixU();
+        Eigen::Matrix2d V = svd.matrixV();
+        Eigen::Matrix2d Sig = U.transpose() * p->FE * V;
+        Eigen::Matrix2d LogSig; LogSig << log(Sig(0, 0)), 0, 0, log(Sig(1, 1));
+        // std::cout << p->FE << std::endl  << LogSig << std::endl << std::endl;
+
+        // Snow
+        // Eigen::Matrix2d RE = U * V.transpose();
+        // double JE = p->FE.determinant();
+        // Eigen::Matrix2d PF = 2 * sedimentMaterial.mu * (p->FE - RE) + sedimentMaterial.lambda * (JE - 1) * JE * p->FE.transpose().inverse();
+        // Sand
+        Eigen::Matrix2d PF = U * (2 * sedimentMaterial.mu * Sig.inverse() * LogSig 
+            + sedimentMaterial.lambda * LogSig.trace() * Sig.inverse()) * V.transpose();
+        
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy ++) {
+                if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
+                    Eigen::Vector2d dWeight; dWeight << p->dwx(dx+1) * p->wy(dy+1), p->wx(dx+1) * p->dwy(dy+1);
+                    grids[p->gx+dx][p->gy+dy] -> sMomentum -= grids[p->gx+dx][p->gy+dy]->mass * dtSediment * 
+                        p->volume * PF * p->FE.transpose() * dWeight;
                 }
             }
         }
@@ -114,21 +147,72 @@ void MPM::sedimentStep() {
     for (int i = 0; i < nGrid; i++) {
         for (int j = 0; j < nGrid; j++) {
             grids[i][j]->sMomentum += gravity * grids[i][j]->mass * dtSediment;
+            
+            // collision
+            if (grids[i][j]->position(1) < 0.05 && grids[i][j]->sMomentum(1) < 0) {
+                grids[i][j]->sMomentum(1) = 0;
+            }
         }
     }
 
     // Grid to Particle
     for (auto &p : pSediment) {
         p->velocity << 0,0;
+        Eigen::Matrix2d deltaF = Eigen::Matrix2d::Zero();
+        p->B = Eigen::Matrix2d::Zero();
+
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy ++) {
                 if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
+                    Eigen::Vector2d dWeight; dWeight << p->dwx(dx+1) * p->wy(dy+1), p->wx(dx+1) * p->dwy(dy+1);
                     p->velocity += grids[p->gx+dx][p->gy+dy]->sMomentum * p->wx(dx+1) * p->wy(dy+1) / grids[p->gx+dx][p->gy+dy]->mass;
-                    p->B += grids[p->gx+dx][p->gy+dy]->sMomentum * p->wx(dx+1) * p->wy(dy+1) * (grids[p->gx+dx][p->gy+dy]->position - p->position).transpose(); 
+                    p->B += grids[p->gx+dx][p->gy+dy]->sMomentum  / grids[p->gx+dx][p->gy+dy]->mass * p->wx(dx+1) * p->wy(dy+1) * (grids[p->gx+dx][p->gy+dy]->position - p->position).transpose(); 
+
+                    deltaF += grids[p->gx+dx][p->gy+dy]->sMomentum / grids[p->gx+dx][p->gy+dy]->mass * dWeight.transpose();
                 }
             }
         }
         p->position += dtSediment * p->velocity;
+        if (p->position(1) < 0.05) {
+            p->position(1) = 0.05;
+            if (p->velocity(1) < 0) {
+                p->velocity(1) = 0;   
+            }
+        }
+
+        Eigen::Matrix2d Fnew = (Eigen::Matrix2d::Identity() + dtSediment * deltaF) * p->FE;
+        
+        // Project to yield space
+        Eigen::JacobiSVD<Eigen::MatrixXd> svd(Fnew, Eigen::ComputeThinU | Eigen::ComputeThinV);
+        Eigen::Matrix2d U = svd.matrixU();
+        Eigen::Matrix2d V = svd.matrixV();
+        Eigen::Matrix2d Sig = U.transpose() * Fnew * V;
+        Eigen::Matrix2d e; e << log(Sig(0, 0)), 0, 0, log(Sig(1, 1));
+
+        Eigen::Matrix2d ehat = e - e.trace() / 2. * Eigen::Matrix2d::Identity();
+        double normF_ehat = sqrt((ehat * ehat).trace());
+        double dgamma = normF_ehat + 
+            (sedimentMaterial.lambda + sedimentMaterial.mu) / sedimentMaterial.mu * 
+            e.trace() * p->alpha;
+        if (dgamma < 0) {;} 
+        else if (normF_ehat == 0 || e.trace()>0) {
+            Sig = Eigen::Matrix2d::Identity();
+            p->q += sqrt((e * e).trace());
+        } 
+        else {
+            Eigen::Matrix2d H = e - dgamma * ehat / normF_ehat;
+            Sig << exp(H(0, 0)), 0, 0, exp(H(1, 1));
+            p->q += dgamma;
+        }
+        p->phi = sedimentMaterial.h0 + (sedimentMaterial.h1 * p->q - sedimentMaterial.h3) * 
+            exp(-sedimentMaterial.h2 * p->q);
+        p->phi = 0;
+        p->alpha = sqrt(2./3.) * 2 * sin(p->phi*3.1416/180) / (3 - sin(p->phi*3.1416/180));
+
+        p->FP = (V * Sig.inverse() * U.transpose() * Fnew) * p->FP;
+        p->FE = U * Sig * V.transpose();
+
+        // p->FE = Fnew;
     }
 }
 
@@ -150,103 +234,6 @@ void MPM::render() {
             grids[i][j]->renderPosition();
         }
     }
-}
-
-void MPM::initFromConfig(std::string filename) {
-    std::ifstream f;
-    f.open(filename, std::fstream::in);
-    if (!f) {
-        std::cout << "Unable to load file: " << filename << std::endl;
-        throw "File error";
-    }
-
-    enum {NORMAL, MATERIAL} state = NORMAL;
-    Material* materialPtr;
-    std::string line;
-
-    int i, j; double d, x, y, z;
-    while(std::getline(f, line)) {
-        std::istringstream iss(line);
-        std::string word;
-        iss >> word;
-
-        if (word == "") {}
-        else if (word.size() >= 1 && word[0] == '#') {}
-        else if (word == "startFluidMaterial") {state = MATERIAL; materialPtr = &fluidMaterial;}
-        else if (word == "startSedimentMaterial") {state = MATERIAL; materialPtr = &sedimentMaterial;}
-
-        else if (state == NORMAL) {
-            if (word == "dt") {iss >> d; dt = d;} 
-            else if (word == "fluidStepPerDT") {iss >> i; fluidStepPerDT = i; dtFluid = dt / (double)fluidStepPerDT;}
-            else if (word == "sedimentStepPerDT") {iss >> i; sedimentStepPerDT = i; dtSediment = dt / (double)sedimentStepPerDT;}
-            else if (word == "gravity") {iss >> x >> y; gravity << x, y;}
-            else if (word == "nGrid") {
-                iss >> i; nGrid = i; sGrid = 1. / (double)i;
-                grids = std::vector<std::vector<Grid*>>(i, std::vector<Grid*>(i));
-                for (i = 0; i < nGrid; i++) {
-                    for (j = 0; j < nGrid; j++) {
-                        grids[i][j] = new Grid();
-                        grids[i][j]->position << (((double)i + 0.5) / nGrid), (((double)j + 0.5) / nGrid);
-                        grids[i][j]->fMomentum << 0, 0;
-                        grids[i][j]->sMomentum << 0, 0;
-                    }
-                }
-            }
-            else if (word == "addFluid" || word == "addSediment") {
-                Particle* p = new Particle();
-                iss >> x;
-                p->mass = x;
-                iss >> x >> y;
-                p->position << x, y;
-                if (iss >> x >> y) {
-                    p->velocity << x, y;
-                } else {
-                    p->velocity << 0, 0;
-                } 
-                if (word == "addFluid") {pFluid.push_back(p);}
-                else {pSediment.push_back(p);}
-            }
-            else if (word == "addFluidBlock" || word == "addSedimentBlock") {
-                iss >> x >> y;
-                Eigen::Vector2d center;
-                center << x, y;
-                iss >> x >> y;
-                Eigen::Vector2d size;
-                size << x, y;
-
-                iss >> x;
-                double interval = x;
-
-                for (x = center[0] - 0.5*size[0]; x <= center[0] + 0.5*size[0]; x += interval) {
-                    for (y = center[1] - 0.5*size[1]; y <= center[1] + 0.5*size[1]; y += interval) {
-                        Particle* p = new Particle();
-                        p->mass = 1;
-                        p->position << x, y;
-                        p->velocity << 0, 0;
-                        if (word == "addFluidBlock") {
-                            p->mass = interval * interval * fluidMaterial.density;
-                            pFluid.push_back(p);
-                        }
-                        else {
-                            p->mass = interval * interval * sedimentMaterial.density;
-                            pSediment.push_back(p);
-                        }
-                    }
-                }
-            }
-            else {std::cout << "Unknown param: " << word << std::endl;}
-        }
-        
-        else if (state == MATERIAL) {
-            if (word == "endMaterial") {state = NORMAL;}
-            else if (word == "density") {iss >> d; materialPtr->density = d;}
-            else {std::cout << "Unknown param: " << word << std::endl;}
-        }
-
-        else {std::cout << "Unknown param: " << word << std::endl;}
-    }
-
-    f.close();
 }
 
 MPM::~MPM() {
