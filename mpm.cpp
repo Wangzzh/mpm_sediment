@@ -45,20 +45,38 @@ void MPM::fluidStep() {
     for (int i = 1; i + 1 < nGrid; i++) {
         for (int j = 1; j + 1 < nGrid; j++) {
             grids[i][j]->fMomentum += gravity * grids[i][j]->mass * dtFluid;
+            grids[i][j]->pressure = 0;
         }
         if (grids[i][0]->fMomentum(1) < 0) {grids[i][0]->fMomentum(1) = 0;}
     }
 
     // projection
-    for (int it = 0; it < 10; it ++) {
+    for (int it = 0; it < 30; it ++) {
         for (int i = 1; i + 1 < nGrid; i++) {
             for (int j = 1; j + 1 < nGrid; j++) {
-                double inflow = grids[i+1][j]->fMomentum(0) + grids[i][j+1]->fMomentum(1) - grids[i][j-1]->fMomentum(1) - grids[i-1][j]->fMomentum(0);
-                if (i-1>0) grids[i-1][j]->fMomentum(0) += 0.25 * inflow;
-                if (i+1<nGrid-1) grids[i+1][j]->fMomentum(0) -= 0.25 * inflow;
-                if (j-1>0) grids[i][j-1]->fMomentum(1) += 0.25 * inflow;
-                if (j-1<nGrid-1) grids[i][j+1]->fMomentum(1) -= 0.25 * inflow;
+                double inflow = grids[i+1][j]->fMomentum(0) / (grids[i+1][j] -> mass + 0.0001)+ 
+                    grids[i][j+1]->fMomentum(1) / (grids[i][j+1]->mass + 0.0001) - 
+                    grids[i][j-1]->fMomentum(1) / (grids[i][j-1]->mass + 0.0001) - 
+                    grids[i-1][j]->fMomentum(0) / (grids[i-1][j]->mass + 0.0001);
+
+                grids[i][j] -> pressure = 0.25 * (
+                    (grids[i+1][j]->pressure + grids[i-1][j]->pressure + grids[i][j+1]->pressure + grids[i][j-1]->pressure)
+                    - 0.5 / dtFluid * inflow  * grids[i][j]->mass
+                );
             }
+        }
+        // set boundaries
+        for (int i = 1; i + 1 < nGrid; i++) {
+            grids[0][i] -> pressure = grids[1][i] -> pressure;
+            grids[nGrid-1][i]->pressure = grids[nGrid-2][i]->pressure;
+            grids[i][0] -> pressure = grids[i][1]->pressure;
+            grids[i][nGrid-1]->pressure = grids[i][nGrid-2]->pressure;
+        }
+    }
+    for (int i = 1; i + 1 < nGrid; i++) {
+        for (int j = 1; j + 1 < nGrid; j++) {
+            grids[i][j] -> fMomentum(0) += 0.5 * dtFluid * (grids[i-1][j]->pressure - grids[i+1][j]->pressure) * grids[i][j]->mass;
+            grids[i][j] -> fMomentum(1) += 0.5 * dtFluid * (grids[i][j-1]->pressure - grids[i][j+1]->pressure) * grids[i][j]->mass;
         }
     }
 
@@ -125,18 +143,18 @@ void MPM::sedimentStep() {
         // std::cout << p->FE << std::endl  << LogSig << std::endl << std::endl;
 
         // Snow
-        // Eigen::Matrix2d RE = U * V.transpose();
-        // double JE = p->FE.determinant();
-        // Eigen::Matrix2d PF = 2 * sedimentMaterial.mu * (p->FE - RE) + sedimentMaterial.lambda * (JE - 1) * JE * p->FE.transpose().inverse();
+        Eigen::Matrix2d RE = U * V.transpose();
+        double JE = p->FE.determinant();
+        Eigen::Matrix2d PF = 2 * sedimentMaterial.mu * (p->FE - RE) + sedimentMaterial.lambda * (JE - 1) * JE * p->FE.transpose().inverse();
         // Sand
-        Eigen::Matrix2d PF = U * (2 * sedimentMaterial.mu * Sig.inverse() * LogSig 
-            + sedimentMaterial.lambda * LogSig.trace() * Sig.inverse()) * V.transpose();
+        // Eigen::Matrix2d PF = U * (2 * sedimentMaterial.mu * Sig.inverse() * LogSig 
+        //     + sedimentMaterial.lambda * LogSig.trace() * Sig.inverse()) * V.transpose();
         
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy ++) {
                 if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
                     Eigen::Vector2d dWeight; dWeight << p->dwx(dx+1) * p->wy(dy+1), p->wx(dx+1) * p->dwy(dy+1);
-                    grids[p->gx+dx][p->gy+dy] -> sMomentum -= grids[p->gx+dx][p->gy+dy]->mass * dtSediment * 
+                    grids[p->gx+dx][p->gy+dy] -> sMomentum -= dtSediment * 
                         p->volume * PF * p->FE.transpose() * dWeight;
                 }
             }
@@ -144,13 +162,21 @@ void MPM::sedimentStep() {
     }
 
     // forces
+    double friction_mu = 0.5;
     for (int i = 0; i < nGrid; i++) {
         for (int j = 0; j < nGrid; j++) {
             grids[i][j]->sMomentum += gravity * grids[i][j]->mass * dtSediment;
             
             // collision
-            if (grids[i][j]->position(1) < 0.05 && grids[i][j]->sMomentum(1) < 0) {
-                grids[i][j]->sMomentum(1) = 0;
+            if (grids[i][j]->position(1) < 0.1) {
+                if (abs(grids[i][j] -> sMomentum(0)) < friction_mu * abs(grids[i][j] -> sMomentum(1))) {
+                    grids[i][j] -> sMomentum(1) = 0;
+                    grids[i][j] -> sMomentum(0) = 0;
+                } else {
+                    grids[i][j] -> sMomentum(0) = grids[i][j] -> sMomentum(0) / abs(grids[i][j] -> sMomentum(0)) * 
+                        (abs(grids[i][j] -> sMomentum(0)) - friction_mu * abs(grids[i][j] -> sMomentum(1)));
+                    grids[i][j] -> sMomentum(1) = 0;
+                }
             }
         }
     }
@@ -166,19 +192,20 @@ void MPM::sedimentStep() {
                 if (p->gx+dx>=0 && p->gx+dx<nGrid && p->gy+dy>=0 && p->gy+dy<nGrid) {
                     Eigen::Vector2d dWeight; dWeight << p->dwx(dx+1) * p->wy(dy+1), p->wx(dx+1) * p->dwy(dy+1);
                     p->velocity += grids[p->gx+dx][p->gy+dy]->sMomentum * p->wx(dx+1) * p->wy(dy+1) / grids[p->gx+dx][p->gy+dy]->mass;
-                    p->B += grids[p->gx+dx][p->gy+dy]->sMomentum  / grids[p->gx+dx][p->gy+dy]->mass * p->wx(dx+1) * p->wy(dy+1) * (grids[p->gx+dx][p->gy+dy]->position - p->position).transpose(); 
+                    p->B += grids[p->gx+dx][p->gy+dy]->sMomentum  / grids[p->gx+dx][p->gy+dy]->mass * 
+                        p->wx(dx+1) * p->wy(dy+1) * (grids[p->gx+dx][p->gy+dy]->position - p->position).transpose(); 
 
                     deltaF += grids[p->gx+dx][p->gy+dy]->sMomentum / grids[p->gx+dx][p->gy+dy]->mass * dWeight.transpose();
                 }
             }
         }
         p->position += dtSediment * p->velocity;
-        if (p->position(1) < 0.05) {
-            p->position(1) = 0.05;
-            if (p->velocity(1) < 0) {
-                p->velocity(1) = 0;   
-            }
-        }
+        // if (p->position(1) < 0.1) {
+        //     p->position(1) = 0.1;
+        //     if (p->velocity(1) < 0) {
+        //         p->velocity(1) = 0;   
+        //     }
+        // }
 
         Eigen::Matrix2d Fnew = (Eigen::Matrix2d::Identity() + dtSediment * deltaF) * p->FE;
         
@@ -194,19 +221,23 @@ void MPM::sedimentStep() {
         double dgamma = normF_ehat + 
             (sedimentMaterial.lambda + sedimentMaterial.mu) / sedimentMaterial.mu * 
             e.trace() * p->alpha;
-        if (dgamma < 0) {;} 
+        if (dgamma < 0) {
+            // p->color = Eigen::Vector3d(0, 1, 0);
+        } 
         else if (normF_ehat == 0 || e.trace()>0) {
             Sig = Eigen::Matrix2d::Identity();
             p->q += sqrt((e * e).trace());
+            // p->color = Eigen::Vector3d(1, 0, 0);
         } 
         else {
             Eigen::Matrix2d H = e - dgamma * ehat / normF_ehat;
             Sig << exp(H(0, 0)), 0, 0, exp(H(1, 1));
             p->q += dgamma;
+            // p->color = Eigen::Vector3d(0, 0, 1);
         }
         p->phi = sedimentMaterial.h0 + (sedimentMaterial.h1 * p->q - sedimentMaterial.h3) * 
             exp(-sedimentMaterial.h2 * p->q);
-        p->phi = 0;
+        p->phi = 30;
         p->alpha = sqrt(2./3.) * 2 * sin(p->phi*3.1416/180) / (3 - sin(p->phi*3.1416/180));
 
         p->FP = (V * Sig.inverse() * U.transpose() * Fnew) * p->FP;
@@ -218,11 +249,9 @@ void MPM::sedimentStep() {
 
 void MPM::render() {
     // Particles
-    glColor3f(0.5, 0.5, 1);
     for (auto &p : pFluid) {
         p->renderPosition();
     }
-    glColor3f(1, 0.8, 0.5);
     for (auto &p : pSediment) {
         p->renderPosition();
     }

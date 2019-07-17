@@ -53,8 +53,8 @@ void MPM::initFromConfig(std::string filename) {
                 } else {
                     p->velocity << 0, 0;
                 } 
-                if (word == "addFluid") {pFluid.push_back(p);}
-                else {pSediment.push_back(p);}
+                if (word == "addFluid") {pFluid.push_back(p); p->color = Eigen::Vector3d(0.7, 0.7, 1);}
+                else {pSediment.push_back(p); p->color = Eigen::Vector3d(1, 1, 0.5);}
             }
             else if (word == "addFluidBlock" || word == "addSedimentBlock") {
                 iss >> x >> y;
@@ -83,10 +83,12 @@ void MPM::initFromConfig(std::string filename) {
                         p->velocity << 0, 0;
                         if (word == "addFluidBlock") {
                             p->mass = interval * interval * fluidMaterial.density;
+                            p->color = Eigen::Vector3d(0.7, 0.7, 1);
                             pFluid.push_back(p);
                         }
                         else {
                             p->mass = interval * interval * sedimentMaterial.density;
+                            p->color = Eigen::Vector3d(1, 1, 0.5);
                             pSediment.push_back(p);
                         }
                     }
@@ -120,10 +122,12 @@ void MPM::initFromConfig(std::string filename) {
                         p->velocity << 0, 0;
                         if (word == "addFluidBlockRand") {
                             p->mass = interval * interval * fluidMaterial.density;
+                            p->color = Eigen::Vector3d(0.7, 0.7, 1);
                             pFluid.push_back(p);
                         }
                         else {
                             p->mass = interval * interval * sedimentMaterial.density;
+                            p->color = Eigen::Vector3d(1, 1, 0.5);
                             pSediment.push_back(p);
                         }
                     }

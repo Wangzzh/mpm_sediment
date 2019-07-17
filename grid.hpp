@@ -16,6 +16,8 @@ public:
     Eigen::Vector2d fMomentum;
     Eigen::Vector2d sMomentum;
 
+    double pressure;
+
     double sFraction;
     double fFraction;
 

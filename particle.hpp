@@ -23,6 +23,8 @@ public:
     Eigen::Vector3d wx, wy;
     Eigen::Vector3d dwx, dwy;
 
+    Eigen::Vector3d color;
+
     // sand
     double q = 0, phi = 30, alpha = sqrt(0.6667) / 2.5;
 

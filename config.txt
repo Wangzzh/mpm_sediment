@@ -1,9 +1,9 @@
-dt 0.001
+dt 0.005
 fluidStepPerDT 1
-sedimentStepPerDT 4
+sedimentStepPerDT 1
 
-nGrid 30
-gravity 0 -3
+nGrid 35
+gravity 0 -1
 
 startFluidMaterial
     density 1000
@@ -12,7 +12,7 @@ endMaterial
 startSedimentMaterial 
     density 2200
     E 350000
-    nu 0.2
+    nu 0.3
 endMaterial
 
 # addParticle <mass> <center> [velocity]
@@ -20,6 +20,6 @@ endMaterial
 # addSediment 1 0.51 0.71 0.1 0
 
 # addBlock / addBlockRand <center> <size> <interval> [rotation]
-# addFluidBlockRand 0.52 0.52 0.1 0.1 0.01 0.5
-addSedimentBlock 0.52 0.52 0.2 0.2 0.03 -0.5
+addFluidBlockRand 0.52 0.52 0.3 0.3 0.01 0.5
+# addSedimentBlockRand 0.52 0.52 0.2 0.5 0.02 -0
 # addSedimentBlockRand 0.55 0.83 0.05 0.05 0.01 

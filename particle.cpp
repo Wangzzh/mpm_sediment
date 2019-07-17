@@ -1,6 +1,7 @@
 #include "particle.hpp"
 
 void Particle::renderPosition() {
+    glColor3f(color(0), color(1), color(2));
     glRectd(position(0) - 0.002, position(1) - 0.002, position(0) + 0.002, position(1) + 0.002);
     
     // double velocityFactor = 2;
